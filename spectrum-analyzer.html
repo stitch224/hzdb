@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spectrum Analyzer · SPC-7A</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --green: #00ff9f;
+    --cyan: #00e5ff;
+    --red: #ff6e6e;
+    --purple: #b388ff;
+    --bg: #050a0e;
+    --panel: #0a1a20;
+    --border: #1a3040;
+    --dim: #1a3040;
+  }
+
+  body {
+    background: var(--bg);
+    font-family: 'Share Tech Mono', 'Courier New', monospace;
+    color: #a0b4c0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 40px;
+    overflow-x: hidden;
+  }
+
+  /* CRT background texture */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 2px,
+      rgba(0,255,159,0.008) 2px, rgba(0,255,159,0.008) 3px
+    );
+    pointer-events: none; z-index: 0;
+  }
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.6) 100%);
+    pointer-events: none; z-index: 0;
+  }
+
+  .wrap { width: 100%; max-width: 880px; position: relative; z-index: 1; }
+
+  /* ── Header ── */
+  .header {
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 6px;
+  }
+  .led {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #1a3040;
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+  .led.on { background: var(--green); box-shadow: 0 0 12px var(--green); animation: blink 1.2s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+  h1 {
+    font-family: 'Orbitron', monospace;
+    font-size: 17px; font-weight: 900;
+    letter-spacing: 7px; color: #c8e6f0;
+    text-shadow: 0 0 20px rgba(200,230,240,0.2);
+  }
+  .model-tag {
+    margin-left: auto; font-size: 9px;
+    letter-spacing: 2px; color: #1a3040;
+  }
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, var(--green), rgba(0,255,159,0.1), transparent);
+    margin-bottom: 16px;
+  }
+
+  /* ── Panel ── */
+  .panel {
+    background: linear-gradient(160deg, var(--panel) 0%, #060e14 100%);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    position: relative; overflow: hidden;
+    box-shadow: 0 0 40px rgba(0,255,159,0.03), inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+  .panel::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 3px,
+      rgba(0,255,159,0.015) 3px, rgba(0,255,159,0.015) 4px
+    );
+    pointer-events: none;
+  }
+
+  /* ── Meters row ── */
+  .meters { display: flex; gap: 14px; margin-bottom: 14px; }
+  .meter { flex: 1; padding: 18px 22px; }
+  .meter-label {
+    font-size: 8px; letter-spacing: 4px;
+    color: var(--dim); margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+  .meter-value {
+    font-family: 'Orbitron', monospace;
+    font-size: 46px; font-weight: 900;
+    line-height: 1; letter-spacing: 1px;
+    transition: color 0.15s, text-shadow 0.15s;
+  }
+  .meter-unit {
+    font-size: 9px; letter-spacing: 3px;
+    margin-top: 4px; opacity: 0.4;
+  }
+  .meter-bar-track {
+    height: 2px; border-radius: 2px;
+    margin-top: 12px; overflow: hidden;
+  }
+  .meter-bar-fill {
+    height: 100%; border-radius: 2px;
+    width: 0%; transition: width 0.08s;
+  }
+
+  #freq-val { color: var(--green); text-shadow: 0 0 22px rgba(0,255,159,0.5); }
+  .freq-track { background: #0a1a20; }
+  .freq-fill { background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+  #db-val { color: var(--red); text-shadow: 0 0 22px rgba(255,110,110,0.5); }
+  .db-track { background: #1a0a0a; }
+  .db-fill { background: var(--red); box-shadow: 0 0 8px var(--red); }
+
+  /* ── Canvas panels ── */
+  .canvas-panel { margin-bottom: 14px; padding: 12px; }
+  .canvas-title {
+    font-size: 8px; letter-spacing: 4px;
+    color: var(--dim); margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+  canvas { display: block; width: 100%; }
+
+  /* scan line */
+  .scanline {
+    position: absolute; top: -2px; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(0,255,159,0.3), transparent);
+    animation: scan 4s linear infinite;
+    display: none;
+  }
+  .scanline.active { display: block; }
+  @keyframes scan { from{top:-2px} to{top:100%} }
+
+  /* freq axis */
+  .freq-axis {
+    display: flex; justify-content: space-between;
+    margin-top: 5px; font-size: 8px;
+    color: var(--dim); letter-spacing: 1px;
+  }
+
+  /* history legend */
+  .hist-head {
+    display: flex; justify-content: space-between;
+    align-items: center; margin-bottom: 8px;
+  }
+  .legend { display: flex; gap: 18px; font-size: 8px; letter-spacing: 2px; }
+
+  /* ── Button ── */
+  .controls { display: flex; justify-content: center; gap: 14px; margin-top: 4px; }
+  .btn {
+    background: transparent;
+    font-family: 'Orbitron', monospace;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 4px; padding: 12px 36px;
+    cursor: pointer; text-transform: uppercase;
+    border-radius: 2px; transition: all 0.2s;
+  }
+  .btn-start {
+    border: 1px solid var(--green); color: var(--green);
+    box-shadow: 0 0 14px rgba(0,255,159,0.15);
+  }
+  .btn-start:hover {
+    background: rgba(0,255,159,0.07);
+    box-shadow: 0 0 28px rgba(0,255,159,0.35);
+  }
+  .btn-stop {
+    border: 1px solid var(--red); color: var(--red);
+    box-shadow: 0 0 14px rgba(255,110,110,0.15);
+  }
+  .btn-stop:hover {
+    background: rgba(255,110,110,0.07);
+    box-shadow: 0 0 28px rgba(255,110,110,0.35);
+  }
+
+  .error-msg {
+    color: var(--red); font-size: 11px;
+    letter-spacing: 2px; text-align: center;
+    margin-top: 14px; display: none;
+  }
+  .footer {
+    text-align: center; font-size: 8px;
+    letter-spacing: 2px; color: #0d1e28;
+    margin-top: 20px;
+  }
+  #status-txt { color: #0d1e28; transition: color 0.3s; }
+  #status-txt.on { color: var(--green); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="led" id="led"></div>
+    <h1>SPECTRUM ANALYZER</h1>
+    <span class="model-tag">SPC-7A · WEB AUDIO API</span>
+  </div>
+  <div class="divider"></div>
+
+  <!-- Meters -->
+  <div class="meters">
+    <div class="panel meter">
+      <div class="meter-label">Frequency</div>
+      <div class="meter-value" id="freq-val">────</div>
+      <div class="meter-unit" style="color:#1a5040">Hz</div>
+      <div class="meter-bar-track freq-track">
+        <div class="meter-bar-fill freq-fill" id="freq-bar"></div>
+      </div>
+    </div>
+    <div class="panel meter">
+      <div class="meter-label">Level</div>
+      <div class="meter-value" id="db-val">───</div>
+      <div class="meter-unit" style="color:#3a1a1a">dBFS</div>
+      <div class="meter-bar-track db-track">
+        <div class="meter-bar-fill db-fill" id="db-bar"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Waveform -->
+  <div class="panel canvas-panel">
+    <div class="canvas-title">Waveform · Time Domain</div>
+    <div class="scanline" id="scanline"></div>
+    <canvas id="wave-canvas" height="90"></canvas>
+  </div>
+
+  <!-- Spectrum -->
+  <div class="panel canvas-panel">
+    <div class="canvas-title">Spectrum · Frequency Domain</div>
+    <canvas id="spec-canvas" height="72"></canvas>
+    <div class="freq-axis">
+      <span>20Hz</span><span>200Hz</span><span>2kHz</span><span>10kHz</span><span>20kHz</span>
+    </div>
+  </div>
+
+  <!-- History -->
+  <div class="panel canvas-panel">
+    <div class="hist-head">
+      <div class="canvas-title" style="margin-bottom:0">History · 120 frames</div>
+      <div class="legend">
+        <span style="color:var(--cyan)">— Hz</span>
+        <span style="color:var(--red)">— dBFS</span>
+      </div>
+    </div>
+    <canvas id="hist-canvas" height="130"></canvas>
+    <div class="freq-axis">
+      <span>← 120 frames ago</span><span>NOW →</span>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="btn btn-start" id="start-btn" onclick="startAudio()">▶ START</button>
+    <button class="btn btn-stop" id="stop-btn" onclick="stopAudio()" style="display:none">■ STOP</button>
+  </div>
+  <div class="error-msg" id="error-msg"></div>
+
+  <div class="footer">
+    MICROPHONE INPUT · <span id="status-txt">○ STANDBY</span>
+  </div>
+</div>
+
+<script>
+const MAX_HIST = 120;
+const FFT_SIZE = 2048;
+let audioCtx, analyser, animId, stream;
+let history = [];
+let running = false;
+
+// Canvas refs
+const waveCanvas = document.getElementById('wave-canvas');
+const specCanvas = document.getElementById('spec-canvas');
+const histCanvas = document.getElementById('hist-canvas');
+const wCtx = waveCanvas.getContext('2d');
+const sCtx = specCanvas.getContext('2d');
+const hCtx = histCanvas.getContext('2d');
+
+function setCanvasSizes() {
+  const w = waveCanvas.parentElement.clientWidth - 24;
+  [waveCanvas, specCanvas, histCanvas].forEach(c => {
+    c.width = Math.max(100, w);
+  });
+}
+setCanvasSizes();
+window.addEventListener('resize', setCanvasSizes);
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function freqColor(f) {
+  if (f < 200) return '#00ff9f';
+  if (f < 800) return '#00e5ff';
+  if (f < 3000) return '#b388ff';
+  return '#ff6e6e';
+}
+
+async function startAudio() {
+  document.getElementById('error-msg').style.display = 'none';
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = FFT_SIZE;
+    analyser.smoothingTimeConstant = 0.82;
+    audioCtx.createMediaStreamSource(stream).connect(analyser);
+
+    const bufLen = analyser.frequencyBinCount;
+    const freqData = new Uint8Array(bufLen);
+    const timeData = new Uint8Array(bufLen);
+    let frame = 0;
+
+    running = true;
+    document.getElementById('start-btn').style.display = 'none';
+    document.getElementById('stop-btn').style.display = '';
+    document.getElementById('led').classList.add('on');
+    document.getElementById('scanline').classList.add('active');
+    document.getElementById('status-txt').textContent = '● RECORDING';
+    document.getElementById('status-txt').classList.add('on');
+
+    function tick() {
+      analyser.getByteFrequencyData(freqData);
+      analyser.getByteTimeDomainData(timeData);
+
+      // dB RMS
+      let sum = 0;
+      for (let i = 0; i < timeData.length; i++) {
+        const s = (timeData[i] - 128) / 128;
+        sum += s * s;
+      }
+      const rms = Math.sqrt(sum / timeData.length);
+      const dbRaw = rms > 0 ? 20 * Math.log10(rms) : -Infinity;
+      const db = Math.max(-80, Math.min(0, dbRaw));
+
+      // Dominant freq
+      let maxV = 0, maxI = 2;
+      for (let i = 2; i < bufLen; i++) {
+        if (freqData[i] > maxV) { maxV = freqData[i]; maxI = i; }
+      }
+      const freq = maxV > 12 ? Math.round((maxI * audioCtx.sampleRate) / FFT_SIZE) : 0;
+
+      // Update meters
+      const fEl = document.getElementById('freq-val');
+      fEl.textContent = freq > 0 ? freq.toLocaleString() : '────';
+      const fc = freqColor(freq);
+      fEl.style.color = fc;
+      fEl.style.textShadow = `0 0 22px ${fc}88`;
+      const fPct = freq > 0 ? Math.min(100, Math.log10(Math.max(1, freq)) / Math.log10(20000) * 100) : 0;
+      document.getElementById('freq-bar').style.width = fPct + '%';
+      document.getElementById('freq-bar').style.background = fc;
+      document.getElementById('freq-bar').style.boxShadow = `0 0 8px ${fc}`;
+
+      document.getElementById('db-val').textContent = Math.round(db);
+      const dbPct = Math.max(0, (db + 80) / 80 * 100);
+      document.getElementById('db-bar').style.width = dbPct + '%';
+
+      // History (every 4 frames)
+      frame++;
+      if (frame % 4 === 0) {
+        history.push({ freq, db });
+        if (history.length > MAX_HIST) history.shift();
+      }
+
+      drawWave(timeData);
+      drawSpec(freqData);
+      drawHist();
+
+      animId = requestAnimationFrame(tick);
+    }
+    tick();
+  } catch(e) {
+    const msg = document.getElementById('error-msg');
+    msg.textContent = 'マイクへのアクセスが拒否されました。ブラウザのアドレスバー左側のアイコンから許可してください。';
+    msg.style.display = 'block';
+  }
+}
+
+function stopAudio() {
+  if (animId) cancelAnimationFrame(animId);
+  if (audioCtx) audioCtx.close();
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  running = false;
+  document.getElementById('start-btn').style.display = '';
+  document.getElementById('stop-btn').style.display = 'none';
+  document.getElementById('led').classList.remove('on');
+  document.getElementById('scanline').classList.remove('active');
+  document.getElementById('status-txt').textContent = '○ STANDBY';
+  document.getElementById('status-txt').classList.remove('on');
+  document.getElementById('freq-val').textContent = '────';
+  document.getElementById('db-val').textContent = '───';
+  document.getElementById('freq-bar').style.width = '0%';
+  document.getElementById('db-bar').style.width = '0%';
+}
+
+function drawWave(data) {
+  const W = waveCanvas.width, H = waveCanvas.height;
+  wCtx.clearRect(0, 0, W, H);
+
+  // grid
+  wCtx.strokeStyle = 'rgba(0,255,159,0.07)'; wCtx.lineWidth = 1;
+  for (let i = 0; i <= 8; i++) {
+    const y = (i / 8) * H;
+    wCtx.beginPath(); wCtx.moveTo(0, y); wCtx.lineTo(W, y); wCtx.stroke();
+  }
+  for (let i = 0; i <= 16; i++) {
+    const x = (i / 16) * W;
+    wCtx.beginPath(); wCtx.moveTo(x, 0); wCtx.lineTo(x, H); wCtx.stroke();
+  }
+  // center
+  wCtx.strokeStyle = 'rgba(0,255,159,0.18)';
+  wCtx.beginPath(); wCtx.moveTo(0, H/2); wCtx.lineTo(W, H/2); wCtx.stroke();
+
+  // wave
+  wCtx.lineWidth = 1.5;
+  wCtx.shadowBlur = 8; wCtx.shadowColor = '#00ff9f';
+  wCtx.strokeStyle = '#00ff9f';
+  wCtx.beginPath();
+  const step = W / data.length;
+  for (let i = 0; i < data.length; i++) {
+    const x = i * step;
+    const y = ((data[i] - 128) / 128) * (H / 2) + H / 2;
+    i === 0 ? wCtx.moveTo(x, y) : wCtx.lineTo(x, y);
+  }
+  wCtx.stroke();
+  wCtx.shadowBlur = 0;
+}
+
+function drawSpec(data) {
+  const W = specCanvas.width, H = specCanvas.height;
+  sCtx.clearRect(0, 0, W, H);
+  const bars = 80;
+  const bw = W / bars - 1;
+  for (let i = 0; i < bars; i++) {
+    const idx = Math.floor((i / bars) * data.length * 0.5);
+    const v = data[idx] / 255;
+    const bh = v * H;
+    const hue = (i / bars) * 200 + 160;
+    sCtx.fillStyle = `hsla(${hue},100%,60%,0.85)`;
+    sCtx.shadowBlur = 8;
+    sCtx.shadowColor = `hsla(${hue},100%,60%,0.5)`;
+    sCtx.fillRect(i * (bw + 1), H - bh, bw, bh);
+  }
+  sCtx.shadowBlur = 0;
+}
+
+function drawHist() {
+  const W = histCanvas.width, H = histCanvas.height;
+  hCtx.clearRect(0, 0, W, H);
+  if (history.length < 2) return;
+
+  // grid
+  hCtx.strokeStyle = 'rgba(255,255,255,0.04)'; hCtx.lineWidth = 1;
+  for (let i = 0; i <= 5; i++) {
+    const y = (i / 5) * H;
+    hCtx.beginPath(); hCtx.moveTo(0, y); hCtx.lineTo(W, y); hCtx.stroke();
+  }
+
+  const n = history.length;
+  const xOf = i => ((MAX_HIST - n + i) / (MAX_HIST - 1)) * W;
+
+  // dB line
+  hCtx.save();
+  hCtx.strokeStyle = '#ff6e6e'; hCtx.lineWidth = 2;
+  hCtx.shadowBlur = 8; hCtx.shadowColor = '#ff6e6e';
+  hCtx.beginPath();
+  history.forEach((p, i) => {
+    const x = xOf(i);
+    const y = lerp(H * 0.95, H * 0.5, (p.db + 80) / 80);
+    i === 0 ? hCtx.moveTo(x, y) : hCtx.lineTo(x, y);
+  });
+  hCtx.stroke(); hCtx.restore();
+
+  // Hz line (log)
+  hCtx.save();
+  hCtx.strokeStyle = '#00e5ff'; hCtx.lineWidth = 2;
+  hCtx.shadowBlur = 8; hCtx.shadowColor = '#00e5ff';
+  hCtx.beginPath();
+  history.forEach((p, i) => {
+    const x = xOf(i);
+    const lf = p.freq > 0 ? Math.log10(p.freq) / Math.log10(20000) : 0;
+    const y = lerp(H * 0.45, H * 0.05, Math.min(1, lf));
+    i === 0 ? hCtx.moveTo(x, y) : hCtx.lineTo(x, y);
+  });
+  hCtx.stroke(); hCtx.restore();
+
+  // divider
+  hCtx.strokeStyle = 'rgba(255,255,255,0.08)'; hCtx.lineWidth = 1;
+  hCtx.beginPath(); hCtx.moveTo(0, H * 0.5); hCtx.lineTo(W, H * 0.5); hCtx.stroke();
+
+  // axis labels
+  hCtx.fillStyle = '#1a3040'; hCtx.font = '8px Share Tech Mono';
+  hCtx.fillText('0 dBFS', 4, H * 0.52);
+  hCtx.fillText('-80 dBFS', 4, H * 0.96);
+  hCtx.fillText('20kHz', W - 40, H * 0.08);
+  hCtx.fillText('20Hz', W - 30, H * 0.44);
+}
+</script>
+</body>
+</html>
